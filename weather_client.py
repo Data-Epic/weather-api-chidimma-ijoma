@@ -1,83 +1,154 @@
 import requests
 from datetime import datetime
 
-api_key =open('api.txt','r').read()
+class WeatherForecast:
+    """
+    A class to fetch and display 5-day weather forecasts (day & night) 
+    for a given city using the OpenWeatherMap API.
+    """
+    
+    def __init__(self, api_key):
+        """
+        Initialize with an API key from OpenWeatherMap.
+        """
+        self.api_key = api_key
+        self.base_url = "http://api.openweathermap.org/data/2.5/forecast"
 
-user_input = input('Name of the place: ')
+    def fetch_data(self, city):
+        """
+        Fetch weather data for a given city.
+        
+        Parameters:
+            city (str): The name of the city to fetch weather for.
 
-base_url = "http://api.openweathermap.org/data/2.5/forecast"
-complete_url = f"{base_url}?q={user_input}&appid={api_key}"
+        Returns:
+            dict or None: JSON response as dictionary if successful, None otherwise.
+        """
+        complete_url = f"{self.base_url}?q={city}&appid={self.api_key}"
+        response = requests.get(complete_url)
 
-response = requests.get(complete_url)
-json_data = response.json()
+        # --- Handle common HTTP errors ---
+        if response.status_code == 400:
+            print("❌ Error 400: Bad request. Check your input or parameters.")
+            return None
+        elif response.status_code == 401:
+            print("❌ Error 401: Unauthorized. Invalid API key.")
+            return None
+        elif response.status_code == 402:
+            print("❌ Error 402: Payment required. Check your OpenWeather subscription plan.")
+            return None
+        elif response.status_code == 403:
+            print("❌ Error 403: Access forbidden. You don't have permission to access this resource.")
+            return None
+        elif response.status_code == 404:
+            print(f"❌ Error 404: City '{city}' not found. Please check the spelling.")
+            return None
+        elif response.status_code != 200:
+            print(f"❌ Unexpected error: {response.status_code}")
+            return None
 
-# Error handling
-if response.status_code != 200 or 'city' not in json_data:
-    print("Error fetching forecast. Please check the city name or your API key.")
-    exit()
+        return response.json()
 
-# Get city data
-city = json_data['city']
-print(f"\nCity: {city['name']}")
-print(f"Latitude: {city['coord']['lat']}°, Longitude: {city['coord']['lon']}°")
+    def parse_forecast(self, json_data):
+        """
+        Parse the JSON forecast data and display formatted weather information.
 
-# Prepare forecast strings
-forecast = f"\n[ {city['name']} - 5 Day Forecast ]\n"
+        Parameters:
+            json_data (dict): The JSON response from the API.
+        """
+        city = json_data['city']
+        name = city['name']
+        lat = city['coord']['lat']
+        lon = city['coord']['lon']
 
-# Store forecasts for day and night
-daily_forecasts = {}
+        print(f"\n📍 City: {name}") # Display City name
+        print(f"🌍 Latitude: {lat}°, Longitude: {lon}°") # Display longititude and latitude
 
-for item in json_data['list']:
-    dt = datetime.strptime(item['dt_txt'], '%Y-%m-%d %H:%M:%S')
-    date_str = dt.date().isoformat()
-    time_str = dt.strftime('%H:%M')
+        forecast = f"\n[ {name} - 5 Day Forecast ]\n"
+        daily_forecasts = {}
 
-    if date_str not in daily_forecasts:
-        daily_forecasts[date_str] = {}
+        # Group data by date and filter to include only daytime (12:00) and nighttime (21:00/00:00)
+        for item in json_data['list']:
+            dt = datetime.strptime(item['dt_txt'], '%Y-%m-%d %H:%M:%S')
+            date_str = dt.date().isoformat()
+            time_str = dt.strftime('%H:%M')
 
-    if time_str == "12:00":
-        daily_forecasts[date_str]['day'] = item
-    elif time_str in ["21:00", "00:00"]:
-        daily_forecasts[date_str]['night'] = item
+            if date_str not in daily_forecasts:
+                daily_forecasts[date_str] = {}
 
-# Function to display forecast details
-def format_forecast(label, data):
-    temp = int(data['main']['temp'] - 273.15)
-    feels_like = int(data['main']['feels_like'] - 273.15)
-    pressure = data['main']['pressure']
-    humidity = data['main']['humidity']
-    description = data['weather'][0]['description'].title()
-    cloudiness = data['clouds']['all']
-    wind_speed_mps = data['wind']['speed']
-    wind_speed_kmph = round(wind_speed_mps * 3.6, 1)
-    wind_deg = data['wind']['deg']
-    pop = int(data.get('pop', 0) * 100)
+            if time_str == "12:00": # Select only the weather data at 12:00
+                daily_forecasts[date_str]['day'] = item
+            elif time_str in ["21:00", "00:00"]: # Select only the weather data at 21:00 or 00:00
+                daily_forecasts[date_str]['night'] = item
 
-    return (
-        f"{label} ({data['dt_txt'][11:16]}):\n"
-        f"  Temperature: {temp}°C (Feels like {feels_like}°C)\n"
-        f"  Pressure: {pressure} hPa\n"
-        f"  Humidity: {humidity}%\n"
-        f"  Weather: {description}\n"
-        f"  Cloudiness: {cloudiness}%\n"
-        f"  Wind: {wind_speed_mps} m/s ({wind_speed_kmph} km/h), {wind_deg}°\n"
-        f"  Precipitation Probability (Rain): {pop}%\n"
-    )
+        # Display up to 5 days of forecasts
+        count = 0
+        for date, times in sorted(daily_forecasts.items()):
+            if count >= 5:
+                break
 
-# Print forecast (limit to 5 days)
-count = 0
-for date, times in sorted(daily_forecasts.items()):
-    if count >= 5:
-        break
+            forecast += f"\n📅 {datetime.strptime(date, '%Y-%m-%d').strftime('%A, %d %B %Y')}\n"
 
-    forecast += f"\n📅 {datetime.strptime(date, '%Y-%m-%d').strftime('%A, %d %B %Y')}\n"
+            if 'day' in times:
+                forecast += self.format_forecast("☀️ Daytime", times['day'])
+            if 'night' in times:
+                forecast += self.format_forecast("🌙 Nighttime", times['night'])
 
-    if 'day' in times:
-        forecast += format_forecast("☀️ Daytime", times['day'])
+            count += 1
 
-    if 'night' in times:
-        forecast += format_forecast("🌙 Nighttime", times['night'])
+        print(forecast)
 
-    count += 1
+    def format_forecast(self, label, data):
+        """
+        Format the forecast data for display.
 
-print(forecast)
+        Parameters:
+            label (str): Label for the forecast time ("Daytime" or "Nighttime").
+            data (dict): The forecast data for the time slot.
+
+        Returns:
+            str: A nicely formatted weather summary.
+        """
+        temp = int(data['main']['temp'] - 273.15) # Convert temperature from Kelvin to Celsius
+        feels_like = int(data['main']['feels_like'] - 273.15) # Convert temperature from Kelvin to Celsius
+        pressure = data['main']['pressure']
+        humidity = data['main']['humidity']
+        description = data['weather'][0]['description'].title()
+        cloudiness = data['clouds']['all']
+        wind_speed_mps = data['wind']['speed']
+        wind_speed_kmph = round(wind_speed_mps * 3.6, 1)
+        wind_deg = data['wind']['deg']
+        pop = int(data.get('pop', 0) * 100)
+
+        return (
+            f"{label} ({data['dt_txt'][11:16]}):\n"
+            f"  Temperature🌡 : {temp}°C (Feels like {feels_like}°C)\n"
+            f"  Pressure🎚️ : {pressure} hPa\n"
+            f"  Humidity💧 : {humidity}%\n"
+            f"  Weather🌈 : {description}\n"
+            f"  Cloudiness☁ : {cloudiness}%\n"
+            f"  Wind💨 : {wind_speed_mps} m/s ({wind_speed_kmph} km/h), {wind_deg}°\n"
+            f"  Precipitation Probability🌧 : {pop}%\n\n"
+        )
+
+
+# --- Main Script Execution ---
+if __name__ == "__main__":
+    """
+    Run the interactive script to accept city names and display weather forecasts.
+    """
+    api_key = open('api.txt','r').read()
+    weather_app = WeatherForecast(api_key)
+
+    print("🌦️   Multi-Location Weather Forecast App")
+    print("Type 'exit' to stop.\n")
+
+    while True:
+        city_name = input("Enter city name: ").strip()
+        if city_name.lower() == 'exit':
+            print("👋 Goodbye!")
+            break
+
+        data = weather_app.fetch_data(city_name)
+        if data:
+            weather_app.parse_forecast(data)
