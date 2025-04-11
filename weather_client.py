@@ -6,46 +6,78 @@ api_key =open('api.txt','r').read()
 user_input = input('Name of the place: ')
 
 base_url = "http://api.openweathermap.org/data/2.5/forecast"
-complete_url = base_url + "?q=" + user_input + "&appid=" + api_key 
-#print(complete_url)
+complete_url = f"{base_url}?q={user_input}&appid={api_key}"
 
+response = requests.get(complete_url)
+json_data = response.json()
 
-json_data = requests.get(complete_url).json()
-#print(json_data)
+# Error handling
+if response.status_code != 200 or 'city' not in json_data:
+    print("Error fetching forecast. Please check the city name or your API key.")
+    exit()
 
+# Get city data
+city = json_data['city']
+print(f"\nCity: {city['name']}")
+print(f"Latitude: {city['coord']['lat']}°, Longitude: {city['coord']['lon']}°")
 
-name_of_the_city = json_data['city']['name']
-print(name_of_the_city)
-city_lat = json_data['city']['coord']['lat']
-city_lon = json_data['city']['coord']['lon']
-print("latitude : " + str(city_lat) + ", Longitude : " + str(city_lon))
+# Prepare forecast strings
+forecast = f"\n[ {city['name']} - 5 Day Forecast ]\n"
 
-#Let's now format the output to make it readable
-string = f'[ {name_of_the_city} - 5 days forecast]\n'
-
+# Store forecasts for day and night
+daily_forecasts = {}
 
 for item in json_data['list']:
-    time_forecasted = item['dt_txt']
-    time_forecasted = datetime.strptime(time_forecasted, '%Y-%m-%d %H:%M:%S')
-    day_forcasted = datetime.strftime(time_forecasted,'%A')
-    print("\n" + str(day_forcasted)+ " " + str(time_forecasted))
-    temp = str(int(item['main']['temp']-273.15))
-    print("Temperature in Celsius: " + temp)
-    feels_like = str(int(item['main']['feels_like'] - 273.15))
-    print("Temperature in Celsius feels like: " + feels_like)
-    pressure = str(item['main']['pressure'])
-    print("Atmospheric pressure on sea level in hPa: " + pressure)
-    humidity = str(item['main']['humidity'])
-    print("Humidity: "+ humidity + "%")
-    weather_des = item['weather'][0]['description']
-    print("Weather description: "+ weather_des.title())
-    cloudiness = str(item['clouds']['all'])
-    print("Cloudiness: " + cloudiness + "%")
-    windSpd = str(item['wind']['speed'])
-    print("Wind speed: \n\t in meter per second is " + windSpd)
-    windSpd = str(float(item['wind']['speed']*3600/1000))
-    print("\t in kilometer per second is " + windSpd)
-    wind_degree = str(item['wind']['deg'])
-    print("Wind degree: " + wind_degree + "°")
-    pop = str(int(item['pop']*100))
-    print("Probability of Precipitation (Rain): " + pop + "%") 
+    dt = datetime.strptime(item['dt_txt'], '%Y-%m-%d %H:%M:%S')
+    date_str = dt.date().isoformat()
+    time_str = dt.strftime('%H:%M')
+
+    if date_str not in daily_forecasts:
+        daily_forecasts[date_str] = {}
+
+    if time_str == "12:00":
+        daily_forecasts[date_str]['day'] = item
+    elif time_str in ["21:00", "00:00"]:
+        daily_forecasts[date_str]['night'] = item
+
+# Function to display forecast details
+def format_forecast(label, data):
+    temp = int(data['main']['temp'] - 273.15)
+    feels_like = int(data['main']['feels_like'] - 273.15)
+    pressure = data['main']['pressure']
+    humidity = data['main']['humidity']
+    description = data['weather'][0]['description'].title()
+    cloudiness = data['clouds']['all']
+    wind_speed_mps = data['wind']['speed']
+    wind_speed_kmph = round(wind_speed_mps * 3.6, 1)
+    wind_deg = data['wind']['deg']
+    pop = int(data.get('pop', 0) * 100)
+
+    return (
+        f"{label} ({data['dt_txt'][11:16]}):\n"
+        f"  Temperature: {temp}°C (Feels like {feels_like}°C)\n"
+        f"  Pressure: {pressure} hPa\n"
+        f"  Humidity: {humidity}%\n"
+        f"  Weather: {description}\n"
+        f"  Cloudiness: {cloudiness}%\n"
+        f"  Wind: {wind_speed_mps} m/s ({wind_speed_kmph} km/h), {wind_deg}°\n"
+        f"  Precipitation Probability (Rain): {pop}%\n"
+    )
+
+# Print forecast (limit to 5 days)
+count = 0
+for date, times in sorted(daily_forecasts.items()):
+    if count >= 5:
+        break
+
+    forecast += f"\n📅 {datetime.strptime(date, '%Y-%m-%d').strftime('%A, %d %B %Y')}\n"
+
+    if 'day' in times:
+        forecast += format_forecast("☀️ Daytime", times['day'])
+
+    if 'night' in times:
+        forecast += format_forecast("🌙 Nighttime", times['night'])
+
+    count += 1
+
+print(forecast)
